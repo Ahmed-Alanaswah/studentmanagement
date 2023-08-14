@@ -5,25 +5,26 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import { Student } from './entities/student.entity';
-import { NOTFOUND } from 'dns';
+import { NOTFOUND, promises } from 'dns';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { CreateStudentDto } from './dto/create-studnt.dto/create-student.dto';
 import { UpdateStudentDto } from './dto/update-student.dto/update-student.dto';
+import { Course } from './entities/course.entity';
 
 @Injectable()
 export class StudentsService {
   constructor(
     @InjectRepository(Student)
     private readonly studentRepository: Repository<Student>,
+    @InjectRepository(Course)
+    private readonly courseRepository: Repository<Course>,
   ) {}
-  // private students: Student[] = [
-  //   { id: 1, name: 'mohammed', age: 38, address: ['iraq', 'karkuk'] },
-  //   { id: 2, name: 'ahmed', age: 29, address: ['iraq', 'baghdad'] },
-  // ];
 
   async findAll(): Promise<Student[]> {
-    return this.studentRepository.find();
+    return this.studentRepository.find({
+      relations: ['courses'],
+    });
   }
 
   async findOne(id: number): Promise<Student> {
@@ -39,16 +40,30 @@ export class StudentsService {
   }
 
   async create(createStudentDto: CreateStudentDto) {
+    const courses = await Promise.all(
+      createStudentDto.courses.map((course) =>
+        this.preloadCourseByName(course),
+      ),
+    );
     const student = await this.studentRepository.create({
       ...createStudentDto,
+      courses,
     });
     return this.studentRepository.save(student);
   }
 
   async update(id: string, updateStudentDto: UpdateStudentDto) {
+    const courses =
+      updateStudentDto.courses &&
+      (await Promise.all(
+        updateStudentDto.courses.map((course) =>
+          this.preloadCourseByName(course),
+        ),
+      ));
     const updateStudent = await this.studentRepository.preload({
       id: +id,
       ...updateStudentDto,
+      courses,
     });
     if (!updateStudent) {
       throw new NotFoundException(`this  id ${id} not found`);
@@ -58,5 +73,17 @@ export class StudentsService {
 
   async remove(id: string) {
     const removeStudents = await this.studentRepository.delete(id);
+  }
+
+  private async preloadCourseByName(name: string): Promise<Course> {
+    const course = await this.courseRepository.findOne({
+      where: { name },
+    });
+
+    if (course) {
+      return course;
+    }
+
+    return this.courseRepository.create({ name });
   }
 }
